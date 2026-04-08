@@ -218,6 +218,9 @@ class DVRIPCam(object):
     async def login(self, loop):
         if self.socket_writer is None:
             await self.connect()
+
+        self.logger.debug("Login attempt: user=%s, password_hash=%s", self.user, self.hash_pass)
+
         data = await self.send(
             1000,
             {
@@ -234,7 +237,7 @@ class DVRIPCam(object):
         ret_code = data.get("Ret")
         if ret_code not in self.OK_CODES:
             error_msg = self.CODES.get(ret_code, f"Unknown error code {ret_code}")
-            self.logger.error("Login failed with code %s: %s", ret_code, error_msg)
+            self.logger.error("Login failed with code %s: %s (user=%s, hash=%s)", ret_code, error_msg, self.user, self.hash_pass)
             return False
 
         try:
@@ -245,7 +248,7 @@ class DVRIPCam(object):
             return False
 
         self.keep_alive(loop)
-        self.logger.info("Login successful for %s", self.ip)
+        self.logger.info("Login successful for %s@%s", self.user, self.ip)
         return True
 
     async def getAuthorityList(self):

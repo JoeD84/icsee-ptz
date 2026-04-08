@@ -63,7 +63,11 @@ async def async_get_entry_data(hass: HomeAssistant, user_input):
     try:
         login_ok = await dvrip.login(hass.loop)
         if not login_ok:
-            _LOGGER.warning("Login failed for camera at %s (wrong credentials?)", data[CONF_HOST])
+            _LOGGER.warning(
+                "Login failed for camera at %s with credentials user=%s (check password, or try default 'admin'/'admin')",
+                data[CONF_HOST],
+                data[CONF_USERNAME],
+            )
             raise SomethingIsWrongWithCamera("Login failed")
 
         detect_info = await dvrip.get_info("Detect")
