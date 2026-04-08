@@ -450,8 +450,13 @@ class DVRIPCam(object):
 
     async def alarm_worker(self):
         while True:
-            await self.busy.acquire()
             try:
+                data = await self.socket_recv(20)
+                if data is None or len(data) < 20:
+                    self.logger.warning("Alarm worker: incomplete header from %s (got %d bytes)", self.ip, len(data) if data else 0)
+                    self.close()
+                    return
+
                 (
                     head,
                     version,
@@ -459,21 +464,29 @@ class DVRIPCam(object):
                     sequence_number,
                     msgid,
                     len_data,
-                ) = struct.unpack("BB2xII2xHI", await self.socket_recv(20))
+                ) = struct.unpack("BB2xII2xHI", data)
+
                 await asyncio.sleep(0.1)  # Just for receive whole packet
                 reply = await self.socket_recv(len_data)
-                self.packet_count += 1
-                reply = json.loads(reply[:-2])
-                if msgid == self.QCODES["AlarmInfo"] and self.session == session:
-                    if self.alarm_func is not None:
-                        self.alarm_func(reply[reply["Name"]], sequence_number)
+                if reply is None or len(reply) < len_data:
+                    self.logger.debug("Alarm worker: incomplete data from %s (got %d/%d bytes)", self.ip, len(reply) if reply else 0, len_data)
+                    continue
+
+                # Acquire lock only for cache update
+                async with self.busy:
+                    self.packet_count += 1
+                    try:
+                        reply = json.loads(reply[:-2])
+                        if msgid == self.QCODES["AlarmInfo"] and self.session == session:
+                            if self.alarm_func is not None:
+                                self.alarm_func(reply[reply["Name"]], sequence_number)
+                    except (json.JSONDecodeError, KeyError) as e:
+                        self.logger.debug("Alarm worker: failed to parse alarm data from %s: %s", self.ip, e)
+
             except Exception as e:
-                self.logger.warning("Alarm worker disconnected from %s: %s", self.ip, e)
+                self.logger.error("Alarm worker: unexpected error from %s: %s", self.ip, e)
                 self.close()
                 return
-
-            finally:
-                self.busy.release()
             
     async def set_remote_alarm(self, state):
         await self.set_command(
