@@ -452,19 +452,31 @@ class DVRIPCam(object):
         while True:
             try:
                 data = await self.socket_recv(20)
-                if data is None or len(data) < 20:
-                    self.logger.warning("Alarm worker: incomplete header from %s (got %d bytes)", self.ip, len(data) if data else 0)
+
+                # Validate header size before unpacking
+                if not data:
+                    self.logger.warning("Alarm worker: no data received from %s", self.ip)
                     self.close()
                     return
 
-                (
-                    head,
-                    version,
-                    session,
-                    sequence_number,
-                    msgid,
-                    len_data,
-                ) = struct.unpack("BB2xII2xHI", data)
+                if len(data) < 20:
+                    self.logger.warning("Alarm worker: incomplete header from %s (expected 20, got %d bytes)", self.ip, len(data))
+                    self.close()
+                    return
+
+                try:
+                    (
+                        head,
+                        version,
+                        session,
+                        sequence_number,
+                        msgid,
+                        len_data,
+                    ) = struct.unpack("BB2xII2xHI", data)
+                except struct.error as e:
+                    self.logger.error("Alarm worker: struct unpack error from %s: %s (data len=%d)", self.ip, e, len(data))
+                    self.close()
+                    return
 
                 await asyncio.sleep(0.1)  # Just for receive whole packet
                 reply = await self.socket_recv(len_data)
