@@ -227,12 +227,26 @@ class DVRIPCam(object):
                 "UserName": self.user,
             },
         )
-        if data is None or data["Ret"] not in self.OK_CODES:
+        if data is None:
+            self.logger.error("Login: No response from camera")
             return False
-        self.session = int(data["SessionID"], 16)
-        self.alive_time = data["AliveInterval"]
+
+        ret_code = data.get("Ret")
+        if ret_code not in self.OK_CODES:
+            error_msg = self.CODES.get(ret_code, f"Unknown error code {ret_code}")
+            self.logger.error("Login failed with code %s: %s", ret_code, error_msg)
+            return False
+
+        try:
+            self.session = int(data["SessionID"], 16)
+            self.alive_time = data["AliveInterval"]
+        except (KeyError, ValueError) as e:
+            self.logger.error("Login: Invalid response structure - %s", e)
+            return False
+
         self.keep_alive(loop)
-        return data["Ret"] in self.OK_CODES
+        self.logger.info("Login successful for %s", self.ip)
+        return True
 
     async def getAuthorityList(self):
         data = await self.send(self.QCODES["AuthorityList"])
