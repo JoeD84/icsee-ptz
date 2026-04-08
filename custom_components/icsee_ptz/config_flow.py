@@ -67,16 +67,23 @@ async def async_get_entry_data(hass: HomeAssistant, user_input):
             raise SomethingIsWrongWithCamera("Login failed")
 
         detect_info = await dvrip.get_info("Detect")
-        if isinstance(detect_info, dict):
+        if isinstance(detect_info, dict) and detect_info.get("Ret") in (100, 515):
             data[CONF_CHANNEL_COUNT] = len(detect_info.get("MotionDetect", [0]))
+        elif isinstance(detect_info, dict) and "Ret" in detect_info:
+            _LOGGER.warning("Camera returned error for Detect info at %s: %s", data[CONF_HOST], detect_info.get("Ret"))
+            raise SomethingIsWrongWithCamera(f"Camera error: {detect_info.get('Ret')}")
         else:
             _LOGGER.warning("Unexpected Detect response from %s: %s", data[CONF_HOST], detect_info)
             data[CONF_CHANNEL_COUNT] = 1
 
-        data[CONF_SYSTEM_CAPABILITIES] = await dvrip.get_system_capabilities()
+        system_capabilities = await dvrip.get_system_capabilities()
+        if isinstance(system_capabilities, dict) and system_capabilities.get("Ret") not in (100, 515):
+            _LOGGER.warning("Camera returned error for system capabilities at %s", data[CONF_HOST])
+            raise SomethingIsWrongWithCamera("Could not read system capabilities")
+        data[CONF_SYSTEM_CAPABILITIES] = system_capabilities
 
         system_info: dict[str, str] = await dvrip.get_system_info()  # type: ignore
-        if not isinstance(system_info, dict) or "SerialNo" not in system_info:
+        if not isinstance(system_info, dict) or system_info.get("Ret") not in (100, 515) or "SerialNo" not in system_info:
             _LOGGER.warning("Could not read SerialNo from camera at %s: %s", data[CONF_HOST], system_info)
             raise SomethingIsWrongWithCamera("Missing SerialNo in system info")
         data[CONF_UNIQUE_ID] = system_info["SerialNo"]

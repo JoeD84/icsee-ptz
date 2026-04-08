@@ -193,7 +193,7 @@ class DVRIPCam(object):
                 data = await self.socket_recv(20)
                 if data is None or len(data) < 20:
                     self.logger.warning("Incomplete or empty response from camera (msg=%s)", msg)
-                    return None
+                    return {"Ret": 101}
                 (
                     head,
                     version,
