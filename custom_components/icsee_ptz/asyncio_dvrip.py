@@ -219,7 +219,7 @@ class DVRIPCam(object):
         if self.socket_writer is None:
             await self.connect()
 
-        self.logger.debug("Login attempt: user=%s, password_hash=%s", self.user, self.hash_pass)
+        self.logger.info("Login attempt: user=%s, password_hash=%s", self.user, self.hash_pass)
 
         data = await self.send(
             1000,
