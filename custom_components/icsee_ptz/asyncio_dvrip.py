@@ -83,7 +83,8 @@ class DVRIPCam(object):
         self.logger = logging.getLogger(__name__)
         self.ip = ip
         self.user = kwargs.get("user", "admin")
-        self.hash_pass = kwargs.get("hash_pass", self.sofia_hash(kwargs.get("password", "")))
+        self._raw_password = kwargs.get("password", "")
+        self.hash_pass = kwargs.get("hash_pass", self.sofia_hash(self._raw_password))
         self.proto = kwargs.get("proto", "tcp")
         self.port = kwargs.get("port", self.PORTS.get(self.proto))
         self.socket_reader = None
@@ -215,9 +216,23 @@ class DVRIPCam(object):
         chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         return "".join([chars[sum(x) % 62] for x in zip(md5[::2], md5[1::2])])
 
+    def _log_password_variants(self, password=""):
+        """Log different hash variants for debugging."""
+        md5_hex = hashlib.md5(bytes(password, "utf-8")).hexdigest()
+        sha1_hex = hashlib.sha1(bytes(password, "utf-8")).hexdigest()
+        sofia = self.sofia_hash(password)
+        self.logger.info(
+            "Password variants for debugging: plain=%s, md5=%s, sha1=%s, sofia=%s",
+            password, md5_hex, sha1_hex, sofia
+        )
+
     async def login(self, loop):
         if self.socket_writer is None:
             await self.connect()
+
+        # For debugging: log different hash variants for test users
+        if self.user == "ptz":
+            self._log_password_variants(self._raw_password)
 
         self.logger.info("Login attempt: user=%s, password_hash=%s", self.user, self.hash_pass)
 
