@@ -5,7 +5,6 @@ from homeassistant.const import ATTR_CONNECTIONS, CONF_MAC, CONF_NAME, CONF_UNIQ
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
 from homeassistant.helpers.entity import DeviceInfo, Entity
 from homeassistant.core import HomeAssistant
-import logging
 from .camera import Camera
 
 from .const import DOMAIN

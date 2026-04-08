@@ -1,11 +1,8 @@
 import logging
 from homeassistant.components.switch import SwitchEntity
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-import logging
 from .icsee_entity import ICSeeEntity
 
 from .const import (
@@ -68,17 +65,22 @@ class AlarmSwitch(ICSeeEntity, SwitchEntity):
         self._attr_extra_state_attributes = entry.data[CONF_SYSTEM_CAPABILITIES]
 
     @property
-    def is_on(self, **kwargs):
+    def is_on(self) -> bool:
         return self.cam.detect_info[self.detect_type][self.channel]["Enable"]
 
+    async def _set_detect_state(self, enabled: bool) -> None:
+        """Set detection state and update cache (thread-safe)."""
+        async def update():
+            detect_info = await self.cam.dvrip.get_info("Detect")
+            detect_info[self.detect_type][self.channel]["Enable"] = enabled
+            await self.cam.dvrip.set_info("Detect", detect_info)
+            self.cam.detect_info = detect_info
+            self.schedule_update_ha_state()
+
+        await self.cam.atomic_update_detect(update)
+
     async def async_turn_on(self, **kwargs):
-        x = await self.cam.dvrip.get_info("Detect")
-        x[self.detect_type][self.channel]["Enable"] = True
-        await self.cam.dvrip.set_info("Detect", x)
-        self.cam.detect_info = x
+        await self._set_detect_state(True)
 
     async def async_turn_off(self, **kwargs):
-        x = await self.cam.dvrip.get_info("Detect")
-        x[self.detect_type][self.channel]["Enable"] = False
-        await self.cam.dvrip.set_info("Detect", x)
-        self.cam.detect_info = x
+        await self._set_detect_state(False)

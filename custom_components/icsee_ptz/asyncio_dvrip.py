@@ -171,39 +171,44 @@ class DVRIPCam(object):
         if self.socket_writer is None:
             return {"Ret": 101}
         await self.busy.acquire()
-        if hasattr(data, "__iter__"):
-            data = bytes(json.dumps(data, ensure_ascii=False), "utf-8")
-        pkt = (
-            struct.pack(
-                "BB2xII2xHI",
-                255,
-                0,
-                self.session,
-                self.packet_count,
-                msg,
-                len(data) + 2,
+        try:
+            if hasattr(data, "__iter__"):
+                data = bytes(json.dumps(data, ensure_ascii=False), "utf-8")
+            pkt = (
+                struct.pack(
+                    "BB2xII2xHI",
+                    255,
+                    0,
+                    self.session,
+                    self.packet_count,
+                    msg,
+                    len(data) + 2,
+                )
+                + data
+                + b"\x0a\x00"
             )
-            + data
-            + b"\x0a\x00"
-        )
-        self.logger.debug("=> %s", pkt)
-        self.socket_send(pkt)
-        if wait_response:
-            reply = {"Ret": 101}
-            data = await self.socket_recv(20)
-            if data is None or len(data) < 20:
-                return None
-            (
-                head,
-                version,
-                self.session,
-                sequence_number,
-                msgid,
-                len_data,
-            ) = struct.unpack("BB2xII2xHI", data)
-            reply = await self.receive_json(len_data)
+            self.logger.debug("=> %s", pkt)
+            self.socket_send(pkt)
+            if wait_response:
+                data = await self.socket_recv(20)
+                if data is None or len(data) < 20:
+                    self.logger.warning("Incomplete or empty response from camera (msg=%s)", msg)
+                    return None
+                (
+                    head,
+                    version,
+                    self.session,
+                    sequence_number,
+                    msgid,
+                    len_data,
+                ) = struct.unpack("BB2xII2xHI", data)
+                reply = await self.receive_json(len_data)
+                return reply
+        except Exception:
+            self.logger.exception("Unexpected error in send (msg=%s)", msg)
+            raise
+        finally:
             self.busy.release()
-            return reply
 
     def sofia_hash(self, password=""):
         md5 = hashlib.md5(bytes(password, "utf-8")).digest()
@@ -430,7 +435,8 @@ class DVRIPCam(object):
                 if msgid == self.QCODES["AlarmInfo"] and self.session == session:
                     if self.alarm_func is not None:
                         self.alarm_func(reply[reply["Name"]], sequence_number)
-            except:
+            except Exception as e:
+                self.logger.warning("Alarm worker disconnected from %s: %s", self.ip, e)
                 self.close()
                 return
 

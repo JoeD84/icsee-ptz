@@ -1,7 +1,10 @@
 import asyncio
+import logging
 
 from homeassistant.core import HomeAssistant
 from .asyncio_dvrip import DVRIPCam, SomethingIsWrongWithCamera
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class Camera:
@@ -21,6 +24,8 @@ class Camera:
         self.detect_info: dict = {}
         self.camara_info: dict = {}
         self._last_connection_success = False
+        self._cache_lock = asyncio.Lock()
+        self._last_connection_state = False
 
     def on_update(self, callback):
         self.update_callbacks.append(callback)
@@ -30,6 +35,11 @@ class Camera:
 
     def add_alarm_callback(self, callback):
         self.alarm_callbacks.append(callback)
+
+    async def atomic_update_detect(self, callback):
+        """Thread-safe update of detect_info cache."""
+        async with self._cache_lock:
+            await callback()
 
     def remove_alarm_callback(self, callback):
         self.alarm_callbacks.remove(callback)
@@ -78,9 +88,15 @@ class Camera:
                 if not self._last_connection_success:
                     await self.dvrip.set_time()
                     self._last_connection_success = True
-            except SomethingIsWrongWithCamera:
+                    _LOGGER.info("Successfully connected to camera %s", self.host)
+                    # Notify on successful reconnect
+                    self._trigger_callbacks()
+            except SomethingIsWrongWithCamera as e:
+                if self._last_connection_success:
+                    _LOGGER.warning("Lost connection to camera %s: %s", self.host, e)
+                else:
+                    _LOGGER.debug("Camera %s not reachable: %s", self.host, e)
                 self._last_connection_success = False
-                pass
             except asyncio.CancelledError:
                 self._last_connection_success = False
                 if dvrip:
@@ -93,10 +109,16 @@ class Camera:
                     self.dvrip_alarm.close()
                 raise
 
-            for cb in self.update_callbacks:
-                try:
-                    cb()  # if it fails nowm it isn't loaded yet.
-                except:
-                    pass
+            # Only trigger callbacks on successful connection
+            if self._last_connection_success:
+                self._trigger_callbacks()
 
             await asyncio.sleep(20)
+
+    def _trigger_callbacks(self) -> None:
+        """Trigger all registered update callbacks safely."""
+        for cb in self.update_callbacks:
+            try:
+                cb()
+            except Exception as e:
+                _LOGGER.debug("Update callback failed: %s", e)

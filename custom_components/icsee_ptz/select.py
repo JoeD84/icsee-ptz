@@ -3,8 +3,6 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-import logging
 from .icsee_entity import ICSeeEntity
 
 from .const import (
@@ -67,10 +65,14 @@ class DayNightColorSelect(ICSeeEntity, SelectEntity):
         return DAY_NIGHT_COLOR_MAPPING_INV[x]
 
     async def async_select_option(self, option: str) -> None:
-        x = await self.cam.dvrip.get_info("Camera.Param")
-        x[self.channel]["DayNightColor"] = DAY_NIGHT_COLOR_MAPPING[option]
-        await self.cam.dvrip.set_info("Camera.Param", x)
-        self.cam.camara_info["Param"] = x
+        async def update():
+            camera_info = await self.cam.dvrip.get_info("Camera.Param")
+            camera_info[self.channel]["DayNightColor"] = DAY_NIGHT_COLOR_MAPPING[option]
+            await self.cam.dvrip.set_info("Camera.Param", camera_info)
+            self.cam.camara_info["Param"] = camera_info
+            self.schedule_update_ha_state()
+
+        await self.cam.atomic_update_detect(update)
 
 class WhiteLightSelect(ICSeeEntity, SelectEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, channel: int = 0):
@@ -90,5 +92,9 @@ class WhiteLightSelect(ICSeeEntity, SelectEntity):
         return self.cam.camara_info["WhiteLight"]["WorkMode"]
 
     async def async_select_option(self, option: str) -> None:
-        await self.cam.dvrip.set_info("Camera.WhiteLight.WorkMode", option)
-        self.cam.camara_info["WhiteLight"]["WorkMode"] = option
+        async def update():
+            await self.cam.dvrip.set_info("Camera.WhiteLight.WorkMode", option)
+            self.cam.camara_info["WhiteLight"]["WorkMode"] = option
+            self.schedule_update_ha_state()
+
+        await self.cam.atomic_update_detect(update)

@@ -60,17 +60,37 @@ async def async_get_entry_data(hass: HomeAssistant, user_input):
         user=data[CONF_USERNAME],
         password=data[CONF_PASSWORD],
     )
-    await dvrip.login(hass.loop)
-    x: dict = await dvrip.get_info("Detect")  # type: ignore
-    data[CONF_CHANNEL_COUNT] = len(x.get("MotionDetect", [0]))
-    data[CONF_SYSTEM_CAPABILITIES] = await dvrip.get_system_capabilities()
-    system_info: dict[str, str] = await dvrip.get_system_info()  # type: ignore
-    data[CONF_UNIQUE_ID] = system_info["SerialNo"]
-    mac = await _async_get_mac_address(
-        hass,
-        data[CONF_HOST],
-    )
-    data[CONF_MAC] = mac
+    try:
+        login_ok = await dvrip.login(hass.loop)
+        if not login_ok:
+            _LOGGER.warning("Login failed for camera at %s (wrong credentials?)", data[CONF_HOST])
+            raise SomethingIsWrongWithCamera("Login failed")
+
+        detect_info = await dvrip.get_info("Detect")
+        if isinstance(detect_info, dict):
+            data[CONF_CHANNEL_COUNT] = len(detect_info.get("MotionDetect", [0]))
+        else:
+            _LOGGER.warning("Unexpected Detect response from %s: %s", data[CONF_HOST], detect_info)
+            data[CONF_CHANNEL_COUNT] = 1
+
+        data[CONF_SYSTEM_CAPABILITIES] = await dvrip.get_system_capabilities()
+
+        system_info: dict[str, str] = await dvrip.get_system_info()  # type: ignore
+        if not isinstance(system_info, dict) or "SerialNo" not in system_info:
+            _LOGGER.warning("Could not read SerialNo from camera at %s: %s", data[CONF_HOST], system_info)
+            raise SomethingIsWrongWithCamera("Missing SerialNo in system info")
+        data[CONF_UNIQUE_ID] = system_info["SerialNo"]
+
+        mac = await _async_get_mac_address(hass, data[CONF_HOST])
+        data[CONF_MAC] = mac
+    except SomethingIsWrongWithCamera:
+        raise
+    except Exception as e:
+        _LOGGER.exception("Unexpected error during camera setup for %s", data[CONF_HOST])
+        raise SomethingIsWrongWithCamera(str(e)) from e
+    finally:
+        dvrip.close()
+
     return data
 
 
@@ -149,7 +169,7 @@ class OptionsFlowHandler(OptionsFlow):
                                 CONF_CHANNEL, 0
                             )
                         },
-                    ): cv.positive_int,
+                    ): vol.All(int, vol.Range(min=0)),
                     vol.Optional(
                         CONF_STEP,
                         description={
@@ -165,7 +185,7 @@ class OptionsFlowHandler(OptionsFlow):
                                 CONF_PRESET, 0
                             )
                         },
-                    ): cv.positive_int,
+                    ): vol.All(int, vol.Range(min=0)),
                     vol.Optional(
                         CONF_EXPERIMENTAL_ENTITIES,
                         description={
